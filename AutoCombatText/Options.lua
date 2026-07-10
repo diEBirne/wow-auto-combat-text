@@ -5,16 +5,31 @@ local ACTIONS = { "SHOW", "HIDE", "IGNORE" }
 local PANEL_WIDTH = 560
 local RULE_ROW_HEIGHT = 30
 local RULES_TO_CONTEXT_GAP = 24
+local RULE_TOOLBAR_HEIGHT = 28
+local CONTEXT_LINE_HEIGHT = 18
+local CONTEXT_GROUP_GAP = 10
+-- headerX aligns with dropdown label text; dropX is the UIDropDownMenuTemplate anchor.
+local RULE_COLUMNS = {
+    role = { header = "Role", headerX = 28, dropX = 12, width = 64 },
+    content = { header = "Content", headerX = 138, dropX = 122, width = 102 },
+    damage = { header = "Damage", headerX = 288, dropX = 272, width = 76 },
+    healing = { header = "Healing", headerX = 408, dropX = 392, width = 72 },
+}
 
-StaticPopupDialogs["AUTO_COMBAT_TEXT_RESET_PROFILE"] = {
-    text = "Reset the active profile to default settings?",
+local RULE_ON_X = 0
+local RULE_REMOVE_X = 514
+
+StaticPopupDialogs["AUTO_COMBAT_TEXT_RESET_SETTINGS"] = {
+    text = "Reset all settings and rules to defaults?",
     button1 = YES,
     button2 = NO,
     OnAccept = function()
-        AutoCombatText:ResetProfileToDefaults()
+        AutoCombatText:ResetToDefaults()
         if AutoCombatText.db.enabled then
             AutoCombatText:ApplyCurrentContext(true)
         end
+        AutoCombatText:EnsureOptionsContent()
+        AutoCombatText:RebuildRuleRows()
         AutoCombatText:RefreshOptionsPanel()
     end,
     timeout = 0,
@@ -61,6 +76,33 @@ local function CreateButton(parent, text, width, x, yOffset, onClick)
     button:SetPoint("TOPLEFT", x, yOffset)
     button:SetText(text)
     button:SetScript("OnClick", onClick)
+    return button
+end
+
+local function CreateRemoveButton(parent, x, rowY, onClick)
+    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    button:SetSize(22, 22)
+    button:SetPoint("TOPLEFT", x, rowY + 1)
+    button:SetText("-")
+
+    local fontString = button:GetFontString()
+    if fontString then
+        fontString:ClearAllPoints()
+        fontString:SetPoint("CENTER", button, "CENTER", 0, 0)
+        fontString:SetFont("Fonts\\FRIZQT__.TTF", 18, "OUTLINE")
+    end
+
+    button:SetScript("OnClick", onClick)
+    button:SetScript("OnEnter", function(btn)
+        GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Remove rule", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    button:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+    button:SetFrameLevel(parent:GetFrameLevel() + 10)
+
     return button
 end
 
@@ -173,27 +215,23 @@ function AutoCombatText:LayoutContextSection(contextStartY)
 
     widgets.contextRole:ClearAllPoints()
     widgets.contextRole:SetPoint("TOPLEFT", widgets.content, "TOPLEFT", 0, yOffset)
-    yOffset = yOffset - 18
+    yOffset = yOffset - CONTEXT_LINE_HEIGHT
 
     widgets.contextContent:ClearAllPoints()
     widgets.contextContent:SetPoint("TOPLEFT", widgets.content, "TOPLEFT", 0, yOffset)
-    yOffset = yOffset - 18
+    yOffset = yOffset - CONTEXT_LINE_HEIGHT - CONTEXT_GROUP_GAP
 
     widgets.contextSource:ClearAllPoints()
     widgets.contextSource:SetPoint("TOPLEFT", widgets.content, "TOPLEFT", 0, yOffset)
-    yOffset = yOffset - 18
+    yOffset = yOffset - CONTEXT_LINE_HEIGHT
 
     widgets.contextDamage:ClearAllPoints()
     widgets.contextDamage:SetPoint("TOPLEFT", widgets.content, "TOPLEFT", 0, yOffset)
-    yOffset = yOffset - 18
+    yOffset = yOffset - CONTEXT_LINE_HEIGHT
 
     widgets.contextHealing:ClearAllPoints()
     widgets.contextHealing:SetPoint("TOPLEFT", widgets.content, "TOPLEFT", 0, yOffset)
-    yOffset = yOffset - 18
-
-    widgets.contextCVars:ClearAllPoints()
-    widgets.contextCVars:SetPoint("TOPLEFT", widgets.content, "TOPLEFT", 0, yOffset)
-    yOffset = yOffset - 40
+    yOffset = yOffset - CONTEXT_LINE_HEIGHT - CONTEXT_GROUP_GAP
 
     widgets.applyButton:ClearAllPoints()
     widgets.applyButton:SetPoint("TOPLEFT", widgets.content, "TOPLEFT", 0, yOffset)
@@ -204,108 +242,187 @@ function AutoCombatText:LayoutContextSection(contextStartY)
     return yOffset - 30
 end
 
+function AutoCombatText:LayoutRulesToolbar(toolbarY)
+    local widgets = self.optionsWidgets
+    if not widgets or not widgets.addRuleButton then
+        return toolbarY
+    end
+
+    widgets.addRuleButton:ClearAllPoints()
+    widgets.addRuleButton:SetPoint("TOPLEFT", widgets.content, "TOPLEFT", 0, toolbarY)
+
+    return toolbarY - RULE_TOOLBAR_HEIGHT
+end
+
+function AutoCombatText:RemoveRuleRowByReference(rule)
+    for index, profileRule in ipairs(self:GetRules()) do
+        if profileRule == rule then
+            self:RemoveRule(index)
+            return true
+        end
+    end
+    return false
+end
+
+function AutoCombatText:CreateRuleRow(widgets, rule)
+    local row = { rule = rule }
+    local content = widgets.content
+
+    row.enabledCheckbox = CreateFrame("CheckButton", nil, content, "UICheckButtonTemplate")
+    row.enabledCheckbox:SetSize(24, 24)
+    row.enabledCheckbox:SetScript("OnClick", function(button)
+        row.rule.enabled = button:GetChecked() and true or false
+        if self.db.enabled then
+            self:ApplyCurrentContext(true)
+        end
+        self:RefreshOptionsPanel()
+    end)
+
+    row.roleDropdown = self:CreateRoleDropdown(
+        content,
+        RULE_COLUMNS.role.dropX,
+        0,
+        RULE_COLUMNS.role.width,
+        function()
+            return row.rule.role
+        end,
+        function(value)
+            if not self:TrySetRuleMatch(row.rule, value, row.rule.content) then
+                row.roleDropdown.Refresh()
+                return
+            end
+        end
+    )
+
+    row.contentDropdown = self:CreateContentDropdown(
+        content,
+        RULE_COLUMNS.content.dropX,
+        0,
+        RULE_COLUMNS.content.width,
+        function()
+            return row.rule.content
+        end,
+        function(value)
+            if not self:TrySetRuleMatch(row.rule, row.rule.role, value) then
+                row.contentDropdown.Refresh()
+                return
+            end
+        end
+    )
+
+    row.damageDropdown = self:CreateActionDropdown(
+        content,
+        RULE_COLUMNS.damage.dropX,
+        0,
+        RULE_COLUMNS.damage.width,
+        function()
+            return row.rule.damage
+        end,
+        function(value)
+            row.rule.damage = value
+            if self.db.enabled then
+                self:ApplyCurrentContext(true)
+            end
+        end
+    )
+
+    row.healingDropdown = self:CreateActionDropdown(
+        content,
+        RULE_COLUMNS.healing.dropX,
+        0,
+        RULE_COLUMNS.healing.width,
+        function()
+            return row.rule.healing
+        end,
+        function(value)
+            row.rule.healing = value
+            if self.db.enabled then
+                self:ApplyCurrentContext(true)
+            end
+        end
+    )
+
+    row.removeButton = CreateRemoveButton(content, RULE_REMOVE_X, 0, function()
+        if self:RemoveRuleRowByReference(row.rule) and self.db.enabled then
+            self:ApplyCurrentContext(true)
+        end
+        self:RebuildRuleRows()
+        self:RefreshOptionsPanel()
+    end)
+
+    return row
+end
+
+function AutoCombatText:PositionRuleRow(row, rowY)
+    row.enabledCheckbox:ClearAllPoints()
+    row.enabledCheckbox:SetPoint("TOPLEFT", 0, rowY)
+    row.enabledCheckbox:Show()
+
+    row.roleDropdown:ClearAllPoints()
+    row.roleDropdown:SetPoint("TOPLEFT", RULE_COLUMNS.role.dropX, rowY + 4)
+    row.roleDropdown:Show()
+
+    row.contentDropdown:ClearAllPoints()
+    row.contentDropdown:SetPoint("TOPLEFT", RULE_COLUMNS.content.dropX, rowY + 4)
+    row.contentDropdown:Show()
+
+    row.damageDropdown:ClearAllPoints()
+    row.damageDropdown:SetPoint("TOPLEFT", RULE_COLUMNS.damage.dropX, rowY + 4)
+    row.damageDropdown:Show()
+
+    row.healingDropdown:ClearAllPoints()
+    row.healingDropdown:SetPoint("TOPLEFT", RULE_COLUMNS.healing.dropX, rowY + 4)
+    row.healingDropdown:Show()
+
+    row.removeButton:ClearAllPoints()
+    row.removeButton:SetPoint("TOPLEFT", RULE_REMOVE_X, rowY + 1)
+    row.removeButton:Show()
+end
+
+function AutoCombatText:HideRuleRow(row)
+    if not row then
+        return
+    end
+
+    row.enabledCheckbox:Hide()
+    row.roleDropdown:Hide()
+    row.contentDropdown:Hide()
+    row.damageDropdown:Hide()
+    row.healingDropdown:Hide()
+    row.removeButton:Hide()
+end
+
 function AutoCombatText:RebuildRuleRows()
     local widgets = self.optionsWidgets
     if not widgets or not widgets.content then
         return
     end
 
-    for _, row in ipairs(widgets.ruleRows or {}) do
-        row.enabledCheckbox:Hide()
-        row.roleDropdown:Hide()
-        row.contentDropdown:Hide()
-        row.damageDropdown:Hide()
-        row.healingDropdown:Hide()
-    end
-    widgets.ruleRows = {}
+    widgets.ruleRows = widgets.ruleRows or {}
 
-    local profile = self:GetActiveProfile()
-    local rules = profile.rules or {}
+    local rules = self:GetRules()
+    local ruleCount = #rules
 
     for index, rule in ipairs(rules) do
+        local row = widgets.ruleRows[index]
+        if not row then
+            row = self:CreateRuleRow(widgets, rule)
+            widgets.ruleRows[index] = row
+        else
+            row.rule = rule
+        end
+
         local rowY = widgets.rulesFirstRowY - ((index - 1) * RULE_ROW_HEIGHT)
-
-        local enabledCheckbox = CreateFrame("CheckButton", nil, widgets.content, "UICheckButtonTemplate")
-        enabledCheckbox:SetSize(24, 24)
-        enabledCheckbox:SetPoint("TOPLEFT", 0, rowY)
-        enabledCheckbox:SetScript("OnClick", function(button)
-            rule.enabled = button:GetChecked() and true or false
-            if self.db.enabled then
-                self:ApplyCurrentContext(true)
-            end
-            self:RefreshOptionsPanel()
-        end)
-
-        local roleDropdown = self:CreateRoleDropdown(
-            widgets.content,
-            24,
-            rowY + 4,
-            70,
-            function()
-                return rule.role
-            end,
-            function(value)
-                rule.role = value
-            end
-        )
-
-        local contentDropdown = self:CreateContentDropdown(
-            widgets.content,
-            100,
-            rowY + 4,
-            120,
-            function()
-                return rule.content
-            end,
-            function(value)
-                rule.content = value
-            end
-        )
-
-        local damageDropdown = self:CreateActionDropdown(
-            widgets.content,
-            250,
-            rowY + 4,
-            110,
-            function()
-                return rule.damage
-            end,
-            function(value)
-                rule.damage = value
-                if self.db.enabled then
-                    self:ApplyCurrentContext(true)
-                end
-            end
-        )
-
-        local healingDropdown = self:CreateActionDropdown(
-            widgets.content,
-            370,
-            rowY + 4,
-            110,
-            function()
-                return rule.healing
-            end,
-            function(value)
-                rule.healing = value
-                if self.db.enabled then
-                    self:ApplyCurrentContext(true)
-                end
-            end
-        )
-
-        widgets.ruleRows[index] = {
-            enabledCheckbox = enabledCheckbox,
-            roleDropdown = roleDropdown,
-            contentDropdown = contentDropdown,
-            damageDropdown = damageDropdown,
-            healingDropdown = healingDropdown,
-            rule = rule,
-        }
+        self:PositionRuleRow(row, rowY)
     end
 
-    local rulesBottomY = widgets.rulesFirstRowY - (#rules * RULE_ROW_HEIGHT)
-    local contextStartY = rulesBottomY - RULES_TO_CONTEXT_GAP
+    for index = ruleCount + 1, #widgets.ruleRows do
+        self:HideRuleRow(widgets.ruleRows[index])
+    end
+
+    local rulesBottomY = widgets.rulesFirstRowY - (ruleCount * RULE_ROW_HEIGHT)
+    local toolbarY = rulesBottomY - 6
+    local contextStartY = self:LayoutRulesToolbar(toolbarY) - RULES_TO_CONTEXT_GAP
     local bottomY = self:LayoutContextSection(contextStartY)
     widgets.content:SetHeight(math.abs(bottomY) + 24)
 end
@@ -317,45 +434,41 @@ function AutoCombatText:RefreshOptionsPanel()
     end
 
     widgets.enabledCheckbox:SetChecked(self.db.enabled)
-    widgets.restoreCheckbox:SetChecked(self.db.restoreOriginalOnDisable)
-
-    local profile, profileName = self:GetActiveProfile()
-    widgets.profileLabel:SetText(string.format("Active profile: %s", profileName))
 
     widgets.defaultDamageDropdown.Refresh()
     widgets.defaultHealingDropdown.Refresh()
 
-    for _, row in ipairs(widgets.ruleRows or {}) do
-        row.enabledCheckbox:SetChecked(row.rule.enabled)
-        row.roleDropdown.Refresh()
-        row.contentDropdown.Refresh()
-        row.damageDropdown.Refresh()
-        row.healingDropdown.Refresh()
+    for index, row in ipairs(widgets.ruleRows or {}) do
+        if row.rule and row.enabledCheckbox:IsShown() then
+            row.enabledCheckbox:SetChecked(row.rule.enabled)
+            row.roleDropdown.Refresh()
+            row.contentDropdown.Refresh()
+            row.damageDropdown.Refresh()
+            row.healingDropdown.Refresh()
+        end
     end
 
     local context = self:GetCurrentContext()
     local settings = self:GetSettingsForContext(context)
-    widgets.contextRole:SetText(string.format("Role: %s (%s)", self:FormatRole(context.role), context.role))
-    widgets.contextContent:SetText(string.format("Content: %s (%s)", self:FormatContent(context.content), context.content))
-    widgets.contextSource:SetText(string.format("Active rule: %s", settings.source))
+    widgets.contextRole:SetText(string.format("Role: %s", self:FormatRole(context.role)))
+    widgets.contextContent:SetText(string.format("Content: %s", self:FormatContent(context.content)))
+
+    local appliedSource
+    if settings.rule then
+        appliedSource = self:BuildRuleSourceLabel(settings.rule.role, settings.rule.content)
+    else
+        appliedSource = "Default settings"
+    end
+
+    widgets.contextSource:SetText(string.format("Applied: %s", appliedSource))
     widgets.contextDamage:SetText(string.format("Damage: %s", self:FormatAction(settings.damage)))
     widgets.contextHealing:SetText(string.format("Healing: %s", self:FormatAction(settings.healing)))
-
-    local cvarLines = {}
-    for category, baseName in pairs(self.ManagedCVars) do
-        local resolvedName = self:ResolveCVarName(baseName)
-        local value = GetCVar(resolvedName)
-        cvarLines[#cvarLines + 1] = string.format(
-            "%s: %s",
-            resolvedName,
-            self:FormatCVarEnabled(value)
-        )
-    end
-    table.sort(cvarLines)
-    widgets.contextCVars:SetText(table.concat(cvarLines, "\n"))
 end
 
 function AutoCombatText:OpenOptions()
+    self:RegisterOptionsPanel()
+    self:EnsureOptionsContent()
+
     if Settings and Settings.OpenToCategory and self.optionsCategoryID then
         Settings.OpenToCategory(self.optionsCategoryID)
         return
@@ -382,11 +495,39 @@ function AutoCombatText:RegisterOptionsPanel()
     panel.cancel = function()
     end
     panel.default = function()
-        StaticPopup_Show("AUTO_COMBAT_TEXT_RESET_PROFILE")
+        StaticPopup_Show("AUTO_COMBAT_TEXT_RESET_SETTINGS")
     end
     panel.refresh = function()
+        self:EnsureOptionsContent()
         self:RebuildRuleRows()
         self:RefreshOptionsPanel()
+    end
+
+    panel:SetScript("OnShow", function()
+        self:EnsureOptionsContent()
+        self:RebuildRuleRows()
+        self:RefreshOptionsPanel()
+    end)
+
+    self.optionsPanel = panel
+
+    if Settings and Settings.RegisterCanvasLayoutCategory then
+        local category = Settings.RegisterCanvasLayoutCategory(panel, "Auto Combat Text")
+        Settings.RegisterAddOnCategory(category)
+        self.optionsCategoryID = category.ID
+    elseif InterfaceOptions_AddCategory then
+        InterfaceOptions_AddCategory(panel)
+    end
+end
+
+function AutoCombatText:EnsureOptionsContent()
+    if self.optionsWidgets then
+        return
+    end
+
+    local panel = self.optionsPanel
+    if not panel then
+        return
     end
 
     local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
@@ -423,24 +564,21 @@ function AutoCombatText:RegisterOptionsPanel()
         end
     )
 
-    local restoreCheckbox
-    restoreCheckbox, yOffset = CreateCheckbox(
-        content,
-        "Restore original Blizzard settings when disabled",
-        "When disabled, restore captured Blizzard FCT CVar values.",
-        yOffset,
-        function(button)
-            self.db.restoreOriginalOnDisable = button:GetChecked() and true or false
-        end
-    )
-
     _, yOffset = CreateSeparator(content, yOffset)
 
-    local _, defaultsHeaderY = CreateSectionHeader(content, "Profile Default", yOffset)
+    local _, defaultsHeaderY = CreateSectionHeader(content, "Default Settings", yOffset)
     yOffset = defaultsHeaderY
 
-    local profileLabel = CreateLabel(content, "Active profile: Default", 0, yOffset, "GameFontHighlight")
-    yOffset = yOffset - 24
+    local defaultHint = CreateLabel(
+        content,
+        "Used when no matching rule applies.",
+        0,
+        yOffset,
+        "GameFontDisableSmall"
+    )
+    defaultHint:SetWidth(PANEL_WIDTH - 20)
+    defaultHint:SetJustifyH("LEFT")
+    yOffset = yOffset - 22
 
     CreateLabel(content, "Damage Text:", 0, yOffset)
     local defaultDamageDropdown = self:CreateActionDropdown(
@@ -449,11 +587,10 @@ function AutoCombatText:RegisterOptionsPanel()
         yOffset + 8,
         120,
         function()
-            return self:GetActiveProfile().default.damage
+            return self:GetDefaultSettings().damage
         end,
         function(value)
-            local profile = self:GetActiveProfile()
-            profile.default.damage = value
+            self.db.default.damage = value
             if self.db.enabled then
                 self:ApplyCurrentContext(true)
             end
@@ -468,11 +605,10 @@ function AutoCombatText:RegisterOptionsPanel()
         yOffset + 8,
         120,
         function()
-            return self:GetActiveProfile().default.healing
+            return self:GetDefaultSettings().healing
         end,
         function(value)
-            local profile = self:GetActiveProfile()
-            profile.default.healing = value
+            self.db.default.healing = value
             if self.db.enabled then
                 self:ApplyCurrentContext(true)
             end
@@ -495,13 +631,20 @@ function AutoCombatText:RegisterOptionsPanel()
     yOffset = yOffset - 22
 
     local rulesStartY = yOffset
-    CreateLabel(content, "On", 0, rulesStartY, "GameFontNormalSmall")
-    CreateLabel(content, "Role", 28, rulesStartY, "GameFontNormalSmall")
-    CreateLabel(content, "Content", 100, rulesStartY, "GameFontNormalSmall")
-    CreateLabel(content, "Damage", 270, rulesStartY, "GameFontNormalSmall")
-    CreateLabel(content, "Healing", 390, rulesStartY, "GameFontNormalSmall")
+    CreateLabel(content, "On", RULE_ON_X, rulesStartY, "GameFontNormalSmall")
+    CreateLabel(content, RULE_COLUMNS.role.header, RULE_COLUMNS.role.headerX, rulesStartY, "GameFontNormalSmall")
+    CreateLabel(content, RULE_COLUMNS.content.header, RULE_COLUMNS.content.headerX, rulesStartY, "GameFontNormalSmall")
+    CreateLabel(content, RULE_COLUMNS.damage.header, RULE_COLUMNS.damage.headerX, rulesStartY, "GameFontNormalSmall")
+    CreateLabel(content, RULE_COLUMNS.healing.header, RULE_COLUMNS.healing.headerX, rulesStartY, "GameFontNormalSmall")
 
     local rulesFirstRowY = rulesStartY - 18
+
+    local addRuleButton = CreateButton(content, "Add Rule", 100, 0, 0, function()
+        if self:AddRule() then
+            self:RebuildRuleRows()
+            self:RefreshOptionsPanel()
+        end
+    end)
 
     local rulesSeparator = content:CreateTexture(nil, "ARTWORK")
     rulesSeparator:SetColorTexture(0.45, 0.45, 0.45, 0.55)
@@ -512,12 +655,9 @@ function AutoCombatText:RegisterOptionsPanel()
 
     local contextRole = CreateLabel(content, "Role:", 0, 0, "GameFontHighlight")
     local contextContent = CreateLabel(content, "Content:", 0, 0, "GameFontHighlight")
-    local contextSource = CreateLabel(content, "Active rule:", 0, 0, "GameFontHighlight")
+    local contextSource = CreateLabel(content, "Applied:", 0, 0, "GameFontHighlight")
     local contextDamage = CreateLabel(content, "Damage:", 0, 0, "GameFontHighlight")
     local contextHealing = CreateLabel(content, "Healing:", 0, 0, "GameFontHighlight")
-    local contextCVars = CreateLabel(content, "", 0, 0, "GameFontHighlightSmall")
-    contextCVars:SetJustifyH("LEFT")
-    contextCVars:SetWidth(PANEL_WIDTH - 20)
 
     local applyButton = CreateButton(content, "Apply Now", 110, 0, 0, function()
         if self.db.enabled then
@@ -526,20 +666,19 @@ function AutoCombatText:RegisterOptionsPanel()
         self:RefreshOptionsPanel()
     end)
 
-    local resetButton = CreateButton(content, "Reset Profile", 110, 120, 0, function()
-        StaticPopup_Show("AUTO_COMBAT_TEXT_RESET_PROFILE")
+    local resetButton = CreateButton(content, "Reset to Defaults", 130, 120, 0, function()
+        StaticPopup_Show("AUTO_COMBAT_TEXT_RESET_SETTINGS")
     end)
 
     self.optionsWidgets = {
         content = content,
         enabledCheckbox = enabledCheckbox,
-        restoreCheckbox = restoreCheckbox,
-        profileLabel = profileLabel,
         defaultDamageDropdown = defaultDamageDropdown,
         defaultHealingDropdown = defaultHealingDropdown,
         rulesStartY = rulesStartY,
         rulesFirstRowY = rulesFirstRowY,
         ruleRows = {},
+        addRuleButton = addRuleButton,
         rulesSeparator = rulesSeparator,
         contextHeader = contextHeader,
         contextRole = contextRole,
@@ -547,23 +686,7 @@ function AutoCombatText:RegisterOptionsPanel()
         contextSource = contextSource,
         contextDamage = contextDamage,
         contextHealing = contextHealing,
-        contextCVars = contextCVars,
         applyButton = applyButton,
         resetButton = resetButton,
     }
-
-    panel:SetScript("OnShow", function()
-        self:RebuildRuleRows()
-        self:RefreshOptionsPanel()
-    end)
-
-    self.optionsPanel = panel
-
-    if Settings and Settings.RegisterCanvasLayoutCategory then
-        local category = Settings.RegisterCanvasLayoutCategory(panel, "Auto Combat Text")
-        Settings.RegisterAddOnCategory(category)
-        self.optionsCategoryID = category.ID
-    elseif InterfaceOptions_AddCategory then
-        InterfaceOptions_AddCategory(panel)
-    end
 end

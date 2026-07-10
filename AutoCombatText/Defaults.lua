@@ -1,77 +1,41 @@
 AutoCombatText = AutoCombatText or {}
 
-local VERSION = "0.1.0"
+local function GetAddOnVersion()
+    if GetAddOnMetadata then
+        local version = GetAddOnMetadata("AutoCombatText", "Version")
+        if version and version ~= "" then
+            return version
+        end
+    end
+    return "0.2.0"
+end
 
-AutoCombatText.VERSION = VERSION
+AutoCombatText.VERSION = GetAddOnVersion()
 
 AutoCombatText.DEFAULT_DB = {
     enabled = true,
-    restoreOriginalOnDisable = true,
 
-    activeProfile = "Default",
-
-    profiles = {
-        ["Default"] = {
-            default = {
-                damage = "SHOW",
-                healing = "SHOW",
-            },
-
-            rules = {
-                {
-                    enabled = true,
-                    role = "TANK",
-                    content = "MYTHIC_PLUS",
-                    damage = "HIDE",
-                    healing = "HIDE",
-                },
-                {
-                    enabled = true,
-                    role = "TANK",
-                    content = "RAID",
-                    damage = "HIDE",
-                    healing = "HIDE",
-                },
-                {
-                    enabled = true,
-                    role = "TANK",
-                    content = "DELVE",
-                    damage = "HIDE",
-                    healing = "HIDE",
-                },
-                {
-                    enabled = true,
-                    role = "TANK",
-                    content = "DUNGEON_MYTHIC",
-                    damage = "HIDE",
-                    healing = "HIDE",
-                },
-                {
-                    enabled = true,
-                    role = "TANK",
-                    content = "DUNGEON_HEROIC",
-                    damage = "SHOW",
-                    healing = "SHOW",
-                },
-                {
-                    enabled = true,
-                    role = "TANK",
-                    content = "DUNGEON_NORMAL",
-                    damage = "SHOW",
-                    healing = "SHOW",
-                },
-                {
-                    enabled = true,
-                    role = "TANK",
-                    content = "GROUP",
-                    damage = "SHOW",
-                    healing = "SHOW",
-                },
-            },
-        },
+    default = {
+        damage = "SHOW",
+        healing = "SHOW",
     },
 
-    originalCVars = {},
+    rules = {
+        {
+            enabled = true,
+            role = "TANK",
+            content = "MYTHIC_PLUS",
+            damage = "HIDE",
+            healing = "HIDE",
+        },
+        {
+            enabled = true,
+            role = "TANK",
+            content = "RAID",
+            damage = "HIDE",
+            healing = "HIDE",
+        },
+    },
 }
 
 local function isTable(value)
@@ -102,52 +66,37 @@ function AutoCombatText:MergeDefaults(target, defaults)
     return target
 end
 
-function AutoCombatText:EnsureProfileRules(profile)
-    profile.rules = profile.rules or {}
-
-    local existingKeys = {}
-    for _, rule in ipairs(profile.rules) do
-        existingKeys[(rule.role or "ANY") .. ":" .. (rule.content or "ANY")] = true
+function AutoCombatText:MigrateSavedData()
+    if not self.db.profiles then
+        return
     end
 
-    local defaultRules = self.DEFAULT_DB.profiles["Default"].rules or {}
-    for _, defaultRule in ipairs(defaultRules) do
-        local key = defaultRule.role .. ":" .. defaultRule.content
-        if not existingKeys[key] then
-            profile.rules[#profile.rules + 1] = self:DeepCopy(defaultRule)
-            existingKeys[key] = true
+    local profile = self.db.profiles[self.db.activeProfile or "Default"]
+        or self.db.profiles["Default"]
+
+    if profile then
+        if self.db.default == nil and profile.default then
+            self.db.default = self:DeepCopy(profile.default)
+        end
+        if self.db.rules == nil and profile.rules then
+            self.db.rules = self:DeepCopy(profile.rules)
         end
     end
+
+    self.db.profiles = nil
+    self.db.activeProfile = nil
 end
 
 function AutoCombatText:InitializeDB()
     AutoCombatTextDB = AutoCombatTextDB or {}
     self.db = AutoCombatTextDB
+    self:MigrateSavedData()
     self:MergeDefaults(self.db, self.DEFAULT_DB)
-
-    self.db.originalCVars = self.db.originalCVars or {}
-    self.db.profiles = self.db.profiles or {}
-    self.db.activeProfile = self.db.activeProfile or "Default"
-
-    if not self.db.profiles[self.db.activeProfile] then
-        self.db.activeProfile = "Default"
-    end
-
-    if not self.db.profiles["Default"] then
-        self.db.profiles["Default"] = self:DeepCopy(self.DEFAULT_DB.profiles["Default"])
-    else
-        self:MergeDefaults(self.db.profiles["Default"], self.DEFAULT_DB.profiles["Default"])
-    end
-
-    for _, profile in pairs(self.db.profiles) do
-        self:EnsureProfileRules(profile)
-    end
+    self.db.default = self.db.default or self:DeepCopy(self.DEFAULT_DB.default)
+    self.db.rules = self.db.rules or {}
 end
 
-function AutoCombatText:ResetProfileToDefaults(profileName)
-    profileName = profileName or self.db.activeProfile
-    self.db.profiles[profileName] = self:DeepCopy(self.DEFAULT_DB.profiles["Default"])
-    if profileName ~= "Default" and self.DEFAULT_DB.profiles[profileName] then
-        self:MergeDefaults(self.db.profiles[profileName], self.DEFAULT_DB.profiles[profileName])
-    end
+function AutoCombatText:ResetToDefaults()
+    self.db.default = self:DeepCopy(self.DEFAULT_DB.default)
+    self.db.rules = self:DeepCopy(self.DEFAULT_DB.rules)
 end

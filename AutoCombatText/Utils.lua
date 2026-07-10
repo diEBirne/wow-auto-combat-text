@@ -18,6 +18,10 @@ AutoCombatText.CONTENT_TYPES = {
     "MYTHIC_PLUS",
     "DELVE",
     "RAID",
+    "RAID_LFR",
+    "RAID_NORMAL",
+    "RAID_HEROIC",
+    "RAID_MYTHIC",
     "PVP",
     "SCENARIO",
     "OTHER",
@@ -111,7 +115,11 @@ function AutoCombatText:FormatContent(content)
         DUNGEON_MYTHIC = "Mythic Dungeon",
         MYTHIC_PLUS = "Mythic+",
         DELVE = "Delve",
-        RAID = "Raid",
+        RAID = "Raid (Any)",
+        RAID_LFR = "LFR",
+        RAID_NORMAL = "Normal Raid",
+        RAID_HEROIC = "Heroic Raid",
+        RAID_MYTHIC = "Mythic Raid",
         PVP = "PvP",
         SCENARIO = "Scenario",
         OTHER = "Other",
@@ -124,6 +132,14 @@ function AutoCombatText:IsDungeonContent(content)
         or content == "DUNGEON_NORMAL"
         or content == "DUNGEON_HEROIC"
         or content == "DUNGEON_MYTHIC"
+end
+
+function AutoCombatText:IsRaidContent(content)
+    return content == "RAID"
+        or content == "RAID_LFR"
+        or content == "RAID_NORMAL"
+        or content == "RAID_HEROIC"
+        or content == "RAID_MYTHIC"
 end
 
 function AutoCombatText:NormalizeRoleInput(text)
@@ -160,6 +176,14 @@ function AutoCombatText:NormalizeContentInput(text)
         return "DUNGEON_MYTHIC"
     elseif value == "delve" or value == "delves" then
         return "DELVE"
+    elseif value == "lfr" or value == "raidlfr" or value == "raid_lfr" then
+        return "RAID_LFR"
+    elseif value == "normalraid" or value == "raidnormal" or value == "raid_normal" then
+        return "RAID_NORMAL"
+    elseif value == "heroicraid" or value == "raidheroic" or value == "raid_heroic" then
+        return "RAID_HEROIC"
+    elseif value == "mythicraid" or value == "raidmythic" or value == "raid_mythic" then
+        return "RAID_MYTHIC"
     elseif value == "mythicplus" or value == "mythic+" or value == "m+" then
         return "MYTHIC_PLUS"
     elseif value == "raid" then

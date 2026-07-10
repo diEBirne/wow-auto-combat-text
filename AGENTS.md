@@ -96,6 +96,8 @@ Typecheck: N/A.
 
 Build: N/A.
 
+Version: set only in `AutoCombatText/AutoCombatText.toc` (`## Version`). Runtime reads it via `GetAddOnMetadata`.
+
 ## Key Design Rule: Documentation Style and Quality
 
 Documentation should be easy to understand for human readers, including readers without a deep technical background.

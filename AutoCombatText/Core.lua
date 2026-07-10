@@ -11,8 +11,6 @@ local EVENTS = {
     "PLAYER_SPECIALIZATION_CHANGED",
     "CHALLENGE_MODE_START",
     "CHALLENGE_MODE_COMPLETED",
-    "PLAYER_REGEN_DISABLED",
-    "PLAYER_REGEN_ENABLED",
 }
 
 function AutoCombatText:ContextsEqual(a, b)
@@ -51,6 +49,7 @@ function AutoCombatText:ApplyCurrentContext(force)
     self.lastAppliedSettings = settings
 
     if self.optionsPanel and self.optionsPanel:IsShown() then
+        self:EnsureOptionsContent()
         self:RefreshOptionsPanel()
     end
 end
@@ -69,7 +68,6 @@ end
 
 function AutoCombatText:OnEvent(event)
     if event == "PLAYER_LOGIN" then
-        self:CaptureAllOriginalCVars()
         self:ApplyCurrentContext(true)
         return
     end
@@ -93,16 +91,12 @@ end
 
 function AutoCombatText:Disable()
     self.db.enabled = false
-    if self.db.restoreOriginalOnDisable then
-        self:RestoreOriginalCVars()
-    end
     self.lastContext = nil
     self.lastAppliedSettings = nil
 end
 
 function AutoCombatText:Initialize()
     self:InitializeDB()
-    self:CaptureAllOriginalCVars()
 
     local frame = CreateFrame("Frame", "AutoCombatTextFrame")
     frame:SetScript("OnEvent", function(_, event)

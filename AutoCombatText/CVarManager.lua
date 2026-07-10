@@ -14,44 +14,30 @@ function AutoCombatText:ResolveCVarName(baseName)
     return baseName
 end
 
-function AutoCombatText:GetManagedCVarNames()
-    local names = {}
-    for _, baseName in pairs(self.ManagedCVars) do
-        names[#names + 1] = self:ResolveCVarName(baseName)
-    end
-    table.sort(names)
-    return names
-end
-
-function AutoCombatText:CaptureOriginalCVar(name)
-    self.db.originalCVars = self.db.originalCVars or {}
-    if self.db.originalCVars[name] == nil then
-        self.db.originalCVars[name] = GetCVar(name)
-    end
-end
-
-function AutoCombatText:CaptureAllOriginalCVars()
-    for _, cvarName in ipairs(self:GetManagedCVarNames()) do
-        self:CaptureOriginalCVar(cvarName)
-    end
-end
-
 function AutoCombatText:ApplyActionToCVar(cvarName, action)
     if action == "IGNORE" then
         return
     end
 
-    if GetCVar(cvarName) == nil then
+    local currentValue = GetCVar(cvarName)
+    if currentValue == nil then
         return
     end
 
-    self:CaptureOriginalCVar(cvarName)
-
+    local targetValue
     if action == "SHOW" then
-        SetCVar(cvarName, "1")
+        targetValue = "1"
     elseif action == "HIDE" then
-        SetCVar(cvarName, "0")
+        targetValue = "0"
+    else
+        return
     end
+
+    if tostring(currentValue) == targetValue then
+        return
+    end
+
+    SetCVar(cvarName, targetValue)
 end
 
 function AutoCombatText:ApplyCategoryAction(category, action)
@@ -70,16 +56,6 @@ function AutoCombatText:ApplyCombatTextSettings(settings)
 
     self:ApplyCategoryAction("damage", settings.damage)
     self:ApplyCategoryAction("healing", settings.healing)
-end
-
-function AutoCombatText:RestoreOriginalCVars()
-    self.db.originalCVars = self.db.originalCVars or {}
-
-    for name, originalValue in pairs(self.db.originalCVars) do
-        if originalValue ~= nil and GetCVar(name) ~= nil then
-            SetCVar(name, originalValue)
-        end
-    end
 end
 
 function AutoCombatText:GetManagedCVarStatus()

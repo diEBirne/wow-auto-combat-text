@@ -36,6 +36,21 @@ function AutoCombatText:GetPartyDungeonContent()
     return "DUNGEON_NORMAL"
 end
 
+function AutoCombatText:GetRaidContent()
+    local _, _, difficultyID = GetInstanceInfo()
+
+    if difficultyID == 17 then
+        return "RAID_LFR"
+    end
+    if difficultyID == 15 then
+        return "RAID_HEROIC"
+    end
+    if difficultyID == 16 then
+        return "RAID_MYTHIC"
+    end
+    return "RAID_NORMAL"
+end
+
 function AutoCombatText:GetCurrentRole()
     local assignedRole = UnitGroupRolesAssigned("player")
     if assignedRole and assignedRole ~= "NONE" then
@@ -75,7 +90,7 @@ function AutoCombatText:GetCurrentContent()
     end
 
     if instanceType == "raid" then
-        return "RAID"
+        return self:GetRaidContent()
     end
 
     if instanceType == "arena" or instanceType == "pvp" then

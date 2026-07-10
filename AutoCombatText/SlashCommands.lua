@@ -43,13 +43,13 @@ local function HandleSlashCommand(self, input)
 
     if command == "reset" then
         if self:ToLower(words[2] or "") == "confirm" then
-            self:ResetProfileToDefaults()
+            self:ResetToDefaults()
             if self.db.enabled then
                 self:ApplyCurrentContext(true)
             end
-            self:Print("Active profile reset to defaults.")
+            self:Print("Settings reset to defaults.")
         else
-            self:Print("This will reset the active profile to defaults.")
+            self:Print("This will reset all settings and rules to defaults.")
             self:Print("Type |cffffffff/act reset confirm|r to continue.")
         end
         return
@@ -63,22 +63,20 @@ function AutoCombatText:PrintHelp()
     self:Print("  /act help - Show this help")
     self:Print("  /act status - Show current context and settings")
     self:Print("  /act enable - Enable the addon")
-    self:Print("  /act disable - Disable and optionally restore CVars")
+    self:Print("  /act disable - Disable the addon")
     self:Print("  /act apply - Re-detect context and apply settings")
     self:Print("  /act config - Open addon options")
-    self:Print("  /act reset confirm - Reset active profile to defaults")
+    self:Print("  /act reset confirm - Reset settings and rules to defaults")
 end
 
 function AutoCombatText:PrintStatus()
     local context = self:GetCurrentContext()
     local settings = self:GetSettingsForContext(context)
-    local _, profileName = self:GetActiveProfile()
 
     self:Print(string.format("Auto Combat Text v%s", self.VERSION))
     self:Print(string.format("Enabled: %s", self.db.enabled and "yes" or "no"))
     self:Print(string.format("Current Role: %s", context.role))
     self:Print(string.format("Current Content: %s", context.content))
-    self:Print(string.format("Active Profile: %s", profileName))
     self:Print(string.format("Resolved Source: %s", settings.source))
     self:Print(string.format("Damage Action: %s", settings.damage))
     self:Print(string.format("Healing Action: %s", settings.healing))
