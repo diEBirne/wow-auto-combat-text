@@ -1,0 +1,15 @@
+## Interface: 120007
+## Title: Auto Combat Text
+## Notes: Automatically manages Blizzard Floating Combat Text based on role and content.
+## Author: SMA
+## Version: 0.1.0
+## SavedVariables: AutoCombatTextDB
+
+Defaults.lua
+Utils.lua
+Context.lua
+Rules.lua
+CVarManager.lua
+Core.lua
+SlashCommands.lua
+Options.lua
